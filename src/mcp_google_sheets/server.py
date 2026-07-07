@@ -19,7 +19,11 @@ from fastmcp import FastMCP, Context
 from mcp.types import ToolAnnotations
 
 # Inbound authentication (opt-in via AUTH_ENABLED, defaults to off)
-from mcp_google_sheets.auth import build_auth_provider, build_email_whitelist_middleware
+from mcp_google_sheets.auth import (
+    auth_enabled,
+    build_auth_provider,
+    build_email_whitelist_middleware,
+)
 
 # Google API imports
 from google.oauth2.credentials import Credentials
@@ -1737,8 +1741,33 @@ def add_chart(spreadsheet_id: str,
         }
 
 
+def _warn_if_share_spreadsheet_enabled():
+    """
+    Warn loudly when the server is exposed via OAuth with share_spreadsheet on.
+
+    share_spreadsheet changes Drive permissions on files the service account
+    can reach; an internet-facing deployment should not expose it.
+    """
+    if auth_enabled() and (ENABLED_TOOLS is None or 'share_spreadsheet' in ENABLED_TOOLS):
+        logger.warning("=" * 72)
+        logger.warning(
+            "SECURITY WARNING: AUTH_ENABLED=true but the 'share_spreadsheet' "
+            "tool is enabled%s.",
+            " (no ENABLED_TOOLS filter is set, so ALL tools are exposed)"
+            if ENABLED_TOOLS is None else "",
+        )
+        logger.warning(
+            "share_spreadsheet can grant third parties access to your "
+            "spreadsheets. For internet-facing deployments set ENABLED_TOOLS "
+            "to an explicit whitelist without share_spreadsheet."
+        )
+        logger.warning("=" * 72)
+
+
 def main():
     _configure_logging()
+
+    _warn_if_share_spreadsheet_enabled()
 
     # Log tool filtering configuration if enabled
     if ENABLED_TOOLS is not None:

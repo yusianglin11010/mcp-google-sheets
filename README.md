@@ -153,6 +153,17 @@ When filtering, use these exact tool names (comma-separated, no spaces):
 - `list_spreadsheets` - Find spreadsheets
 - `list_sheets` - Navigate tabs
 
+**Recommended default for internet-facing deployments** (used by the example
+configs in this repo; deliberately excludes `share_spreadsheet` so a remote
+caller can never change spreadsheet permissions):
+
+```
+ENABLED_TOOLS=list_sheets,get_sheet_data,get_sheet_formulas,update_cells,batch_update_cells,add_rows,list_spreadsheets
+```
+
+When `AUTH_ENABLED=true` and `share_spreadsheet` is enabled (or no filter is
+set at all), the server logs a prominent security warning at startup.
+
 **All Available Tools:**
 - `add_columns`
 - `add_rows`
