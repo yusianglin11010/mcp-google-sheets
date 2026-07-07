@@ -19,7 +19,7 @@ from fastmcp import FastMCP, Context
 from mcp.types import ToolAnnotations
 
 # Inbound authentication (opt-in via AUTH_ENABLED, defaults to off)
-from mcp_google_sheets.auth import build_auth_provider
+from mcp_google_sheets.auth import build_auth_provider, build_email_whitelist_middleware
 
 # Google API imports
 from google.oauth2.credentials import Credentials
@@ -189,6 +189,12 @@ except ValueError:
 mcp = FastMCP("Google Spreadsheet",
               lifespan=spreadsheet_lifespan,
               auth=build_auth_provider())
+
+# Second line of defense behind OAuth: only whitelisted Google accounts may
+# call the server. Fails closed at startup if auth is on and the list is empty.
+_email_whitelist = build_email_whitelist_middleware()
+if _email_whitelist is not None:
+    mcp.add_middleware(_email_whitelist)
 
 
 def tool(annotations: Optional[ToolAnnotations] = None):

@@ -13,11 +13,15 @@ Environment variables:
     AUTH_GOOGLE_CLIENT_SECRET - Google OAuth client secret
     AUTH_BASE_URL             - Public HTTPS base URL of this server
     AUTH_JWT_SIGNING_KEY      - Optional; lets issued tokens survive restarts
+    AUTH_ALLOWED_EMAILS       - Comma-separated Google account whitelist.
+                                Required (non-empty) when AUTH_ENABLED=true.
 """
 
 import logging
 import os
 from typing import Mapping, Optional
+
+from fastmcp.server.middleware import Middleware
 
 logger = logging.getLogger(__name__)
 
@@ -93,3 +97,68 @@ def build_auth_provider(environ: Optional[Mapping[str, str]] = None):
 
     logger.info("Inbound MCP OAuth enabled (GoogleProvider, base_url=%s)", base_url)
     return GoogleProvider(**provider_kwargs)
+
+
+def parse_allowed_emails(environ: Optional[Mapping[str, str]] = None) -> set:
+    """Parse AUTH_ALLOWED_EMAILS into a normalized (lowercase) set."""
+    env = os.environ if environ is None else environ
+    raw = env.get("AUTH_ALLOWED_EMAILS", "")
+    return {email.strip().lower() for email in raw.split(",") if email.strip()}
+
+
+def build_email_whitelist_middleware(environ: Optional[Mapping[str, str]] = None):
+    """
+    Build the email whitelist middleware, or None when AUTH_ENABLED is off.
+
+    Fail-closed: auth enabled with an empty whitelist aborts startup, so a
+    forgotten setting can never turn into "any Google account may log in".
+    """
+    env = os.environ if environ is None else environ
+    if not auth_enabled(env):
+        return None
+
+    allowed = parse_allowed_emails(env)
+    if not allowed:
+        raise AuthConfigError(
+            "AUTH_ENABLED=true requires a non-empty AUTH_ALLOWED_EMAILS "
+            "whitelist (comma-separated Google account emails)"
+        )
+    return EmailWhitelistMiddleware(allowed)
+
+
+def _forbidden(message: str):
+    """Create the MCP error raised for non-whitelisted identities."""
+    from mcp.shared.exceptions import McpError
+    from mcp.types import ErrorData
+
+    return McpError(ErrorData(code=-32003, message=f"403 Forbidden: {message}"))
+
+
+class EmailWhitelistMiddleware(Middleware):
+    """Reject authenticated requests whose Google account email is not whitelisted."""
+
+    def __init__(self, allowed_emails):
+        self._allowed = {email.strip().lower() for email in allowed_emails if email.strip()}
+
+    async def on_request(self, context, call_next):
+        from fastmcp.server.dependencies import get_access_token
+
+        try:
+            token = get_access_token()
+        except Exception:
+            token = None
+
+        claims = getattr(token, "claims", None) or {}
+        email = claims.get("email")
+
+        if not email:
+            # Fail closed: with auth on, every request must carry an
+            # identifiable email claim. Never log the token itself.
+            logger.warning("Rejected request without an email claim")
+            raise _forbidden("no email identity in access token")
+
+        if email.strip().lower() not in self._allowed:
+            logger.warning("Rejected non-whitelisted email: %s", email)
+            raise _forbidden("account is not on the allowed list")
+
+        return await call_next(context)
