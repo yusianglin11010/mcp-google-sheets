@@ -10,36 +10,37 @@ Acceptance criteria per task (from `tasks.md`), with how each is proven.
 - [x] `docs/upgrade-notes.md` answers: upgrade to `fastmcp>=2.13.3,<3`; affected files listed
 
 ## T1.1
-- [ ] All pre-existing unit tests pass on fastmcp 2.13
-- [ ] Server starts with `--transport stdio` and `--transport streamable-http` (no AUTH_* vars set)
-- [ ] `list_sheets`, `get_sheet_data`, `update_cells` invoked successfully through a local MCP
+- [x] All pre-existing unit tests pass on fastmcp 2.13
+- [x] Server starts with `--transport stdio` and `--transport streamable-http` (no AUTH_* vars set)
+- [x] `list_sheets`, `get_sheet_data`, `update_cells` invoked successfully through a local MCP
       client (fastmcp in-memory Client, mocked Google services via lifespan)
 
 ## T1.2 (auth on, streamable HTTP)
-- [ ] Request to `/mcp` without token → 401 + `WWW-Authenticate` header
-- [ ] `GET /.well-known/oauth-protected-resource*` → 200, points at this server's auth server
-- [ ] Authorization server metadata (`/.well-known/oauth-authorization-server`) contains
+- [x] Request to `/mcp` without token → 401 + `WWW-Authenticate` header
+- [x] `GET /.well-known/oauth-protected-resource*` → 200, points at this server's auth server
+- [x] Authorization server metadata (`/.well-known/oauth-authorization-server`) contains
       `registration_endpoint` (DCR)
-- [ ] `AUTH_ENABLED=false` → those endpoints 404, `/mcp` reachable without token (upstream parity)
+- [x] `AUTH_ENABLED=false` → those endpoints 404, `/mcp` reachable without token (upstream parity)
 
 ## T1.3 (unit tests)
-- [ ] Whitelisted email passes through middleware
-- [ ] Non-whitelisted email → rejected with Forbidden/403 error; email logged, token never logged
-- [ ] `AUTH_ENABLED=true` + empty whitelist → startup raises (fail-closed)
-- [ ] Case-insensitive email match; whitespace tolerated
+- [x] Whitelisted email passes through middleware
+- [x] Non-whitelisted email → rejected with Forbidden/403 error; email logged, token never logged
+- [x] `AUTH_ENABLED=true` + empty whitelist → startup raises (fail-closed)
+- [x] Case-insensitive email match; whitespace tolerated
 
 ## T1.4
-- [ ] With default `ENABLED_TOOLS` list, tools/list excludes `share_spreadsheet`
-- [ ] `AUTH_ENABLED=true` + `share_spreadsheet` enabled → prominent startup warning
+- [x] With default `ENABLED_TOOLS` list, tools/list excludes `share_spreadsheet`
+- [x] `AUTH_ENABLED=true` + `share_spreadsheet` enabled → prominent startup warning
 
 ## T1.5
-- [ ] `.github/workflows/ci.yml` runs ruff + pytest on PR; green locally via same commands
+- [x] `.github/workflows/ci.yml` runs ruff + pytest on PR; green locally via same commands
+      (actual GitHub run pending first PR)
 
 ## T2.1
-- [ ] `docker compose config` passes
-- [ ] Container runs as non-root
-- [ ] In-container curl reproduces T1.2 401/metadata checks (documented commands)
+- [x] `docker compose config` passes
+- [x] Container runs as non-root
+- [x] In-container curl reproduces T1.2 401/metadata checks (documented commands)
 
 ## T2.2/T2.3/T3.1/T3.2 — HUMAN
-- [ ] Checklists produced in `docs/deployment-checklist.md`; runbook in `docs/runbook.md`
+- [x] Checklists produced in `docs/deployment-checklist.md`; runbook in `docs/runbook.md`
 - [ ] E2E items in tasks.md §T3.2 executed by human after backfill

@@ -427,7 +427,7 @@ If you want to modify the code:
     # uv run start
     ```
 
-### Method 3: Docker (SSE transport)
+### Method 3: Docker (Streamable HTTP transport)
 
 Run the server in a container using the included `Dockerfile`:
 
@@ -435,18 +435,70 @@ Run the server in a container using the included `Dockerfile`:
 # Build the image
 docker build -t mcp-google-sheets .
 
-# Run (SSE on port 8000)
+# Run (streamable HTTP on port 8000)
 # NOTE: Prefer CREDENTIALS_CONFIG (Base64 credentials content) in containers.
 docker run --rm -p 8000:8000 ^
-  -e HOST=0.0.0.0 ^
-  -e PORT=8000 ^
   -e CREDENTIALS_CONFIG=YOUR_BASE64_CREDENTIALS ^
   -e DRIVE_FOLDER_ID=YOUR_DRIVE_FOLDER_ID ^
   mcp-google-sheets
 ```
 
 - Use `CREDENTIALS_CONFIG` instead of `SERVICE_ACCOUNT_PATH` inside Docker to avoid mounting secrets as files.
-- The container starts with `--transport sse` and listens on `HOST`/`PORT`. Point your MCP client to `http://localhost:8000` using SSE transport.
+- The container starts with `--transport streamable-http` and listens on `HOST`/`PORT` (defaults `0.0.0.0:8000`). Point your MCP client to `http://localhost:8000/mcp`.
+- The image runs as a non-root user and uses `tini` as PID 1.
+
+---
+
+## 🌐 Remote Deployment with OAuth (claude.ai Custom Connector)
+
+The server can be exposed to claude.ai (Web / Desktop / Mobile) as a **custom
+connector**, protected by MCP OAuth. This is **opt-in** — with `AUTH_ENABLED`
+unset or `false`, nothing changes from the classic local setup.
+
+```
+claude.ai ──(MCP OAuth, inbound)──> mcp-google-sheets ──(Service Account, outbound)──> Google Sheets API
+                                      │
+                                      └─ Docker (e.g. Synology NAS) behind a Cloudflare Tunnel
+```
+
+When `AUTH_ENABLED=true`, the server acts as an OAuth authorization server
+towards MCP clients (with Dynamic Client Registration), proxies the login to
+Google using a fixed OAuth client, and issues its own tokens — Google tokens
+are never passed through. Outbound Google Sheets access keeps using the
+service account.
+
+### Environment variables (auth)
+
+| Variable | Required | Description |
+|---|---|---|
+| `AUTH_ENABLED` | — | `true` enables inbound OAuth. Default `false`. |
+| `AUTH_GOOGLE_CLIENT_ID` | when enabled | Google OAuth client ID (type: Web application) |
+| `AUTH_GOOGLE_CLIENT_SECRET` | when enabled | Google OAuth client secret |
+| `AUTH_BASE_URL` | when enabled | Public HTTPS URL of this server (e.g. `https://sheets-mcp.example.com`). Redirect URI to register: `{AUTH_BASE_URL}/auth/callback` |
+| `AUTH_ALLOWED_EMAILS` | when enabled | Comma-separated whitelist of Google accounts. **Empty list = server refuses to start** (fail-closed). |
+| `AUTH_JWT_SIGNING_KEY` | recommended | Stable key (`openssl rand -hex 32`) so issued tokens survive restarts |
+
+### Security defaults
+
+- Requests from accounts outside `AUTH_ALLOWED_EMAILS` are rejected (403) even
+  with a valid token; the rejected email is logged, tokens never are.
+- Use the recommended `ENABLED_TOOLS` whitelist (excludes `share_spreadsheet`);
+  the server warns loudly at startup if `share_spreadsheet` is exposed while
+  auth is enabled.
+- Keep the GCP OAuth consent screen in **Testing** and mirror
+  `AUTH_ALLOWED_EMAILS` in its Test users list.
+
+### Deployment
+
+`docker-compose.yml` ships a ready-made pair: `sheets-mcp` (no host port —
+internal network only) + `cloudflared` (Cloudflare Tunnel sidecar). Copy
+`.env.example` to `.env`, fill it in, and `docker compose up -d`.
+
+Step-by-step operator guides:
+- [docs/deployment-checklist.md](docs/deployment-checklist.md) — GCP console,
+  Cloudflare Tunnel, Synology, claude.ai connector setup, E2E acceptance
+- [docs/runbook.md](docs/runbook.md) — restarts, key rotation, revoking
+  access, whitelist changes, troubleshooting
 
 ---
 
