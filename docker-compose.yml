@@ -1,0 +1,44 @@
+# Deployment: sheets-mcp (streamable HTTP, internal only) + Cloudflare Tunnel
+# sidecar. The MCP server is never published on a host port; the only way in
+# is through the tunnel.
+#
+# All secrets live in .env (see .env.example). Never commit .env.
+
+services:
+  sheets-mcp:
+    build: .
+    image: mcp-google-sheets:latest
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8000"
+      # Outbound: Google service account (base64 JSON)
+      CREDENTIALS_CONFIG: ${CREDENTIALS_CONFIG}
+      DRIVE_FOLDER_ID: ${DRIVE_FOLDER_ID:-}
+      # Inbound: MCP OAuth for claude.ai
+      AUTH_ENABLED: ${AUTH_ENABLED:-true}
+      AUTH_GOOGLE_CLIENT_ID: ${AUTH_GOOGLE_CLIENT_ID}
+      AUTH_GOOGLE_CLIENT_SECRET: ${AUTH_GOOGLE_CLIENT_SECRET}
+      AUTH_BASE_URL: ${AUTH_BASE_URL}
+      AUTH_JWT_SIGNING_KEY: ${AUTH_JWT_SIGNING_KEY:-}
+      AUTH_ALLOWED_EMAILS: ${AUTH_ALLOWED_EMAILS}
+      # Tool whitelist: excludes share_spreadsheet on purpose
+      ENABLED_TOOLS: ${ENABLED_TOOLS:-list_sheets,get_sheet_data,get_sheet_formulas,update_cells,batch_update_cells,add_rows,list_spreadsheets}
+    networks:
+      - mcp-internal
+    # Intentionally no "ports": only cloudflared can reach this service.
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on:
+      - sheets-mcp
+    networks:
+      - mcp-internal
+
+networks:
+  mcp-internal:
+    driver: bridge

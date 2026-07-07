@@ -1,4 +1,15 @@
 .venv/
 __pycache__/
+*.pyc
 dist/
 .env
+.git
+.claude
+.github
+tests/
+docs/
+tasks.md
+TODO_STATUS.md
+token.json
+credentials.json
+service_account.json
