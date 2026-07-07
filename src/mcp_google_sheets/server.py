@@ -18,6 +18,9 @@ from collections.abc import AsyncIterator
 from fastmcp import FastMCP, Context
 from mcp.types import ToolAnnotations
 
+# Inbound authentication (opt-in via AUTH_ENABLED, defaults to off)
+from mcp_google_sheets.auth import build_auth_provider
+
 # Google API imports
 from google.oauth2.credentials import Credentials
 from google.oauth2 import service_account
@@ -182,8 +185,10 @@ except ValueError:
 # Initialize the MCP server with lifespan management.
 # Host/port are passed to mcp.run() for HTTP transports (fastmcp 2.x moved
 # them out of the constructor).
+# auth is None unless AUTH_ENABLED=true, keeping upstream behavior intact.
 mcp = FastMCP("Google Spreadsheet",
-              lifespan=spreadsheet_lifespan)
+              lifespan=spreadsheet_lifespan,
+              auth=build_auth_provider())
 
 
 def tool(annotations: Optional[ToolAnnotations] = None):
