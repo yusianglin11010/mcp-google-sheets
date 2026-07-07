@@ -8,7 +8,7 @@ import base64
 import logging
 import os
 import sys
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional
 import json
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
