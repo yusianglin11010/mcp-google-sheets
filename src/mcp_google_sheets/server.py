@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 
 # MCP imports
-from mcp.server.fastmcp import FastMCP, Context
+from fastmcp import FastMCP, Context
 from mcp.types import ToolAnnotations
 
 # Google API imports
@@ -179,12 +179,11 @@ try:
 except ValueError:
     _resolved_port = 8000
 
-# Initialize the MCP server with explicit host/port to ensure binding as configured
+# Initialize the MCP server with lifespan management.
+# Host/port are passed to mcp.run() for HTTP transports (fastmcp 2.x moved
+# them out of the constructor).
 mcp = FastMCP("Google Spreadsheet",
-              dependencies=["google-auth", "google-auth-oauthlib", "google-api-python-client"],
-              lifespan=spreadsheet_lifespan,
-              host=_resolved_host,
-              port=_resolved_port)
+              lifespan=spreadsheet_lifespan)
 
 
 def tool(annotations: Optional[ToolAnnotations] = None):
@@ -203,18 +202,18 @@ def tool(annotations: Optional[ToolAnnotations] = None):
     """
     def decorator(func):
         tool_name = func.__name__
-        
+
         # If no filtering is configured, or if this tool is in the enabled list
         if ENABLED_TOOLS is None or tool_name in ENABLED_TOOLS:
-            # Apply the mcp.tool decorator
+            # Register with the server. fastmcp 2.x returns a FunctionTool
+            # object here; return the original function instead so module-level
+            # names stay plain callables (direct calls, unit tests).
             if annotations:
-                return mcp.tool(annotations=annotations)(func)
+                mcp.tool(annotations=annotations)(func)
             else:
-                return mcp.tool()(func)
-        else:
-            # Don't register this tool - return the function undecorated
-            return func
-    
+                mcp.tool()(func)
+        return func
+
     return decorator
 
 
@@ -1743,4 +1742,8 @@ def main():
             transport = sys.argv[i + 1]
             break
 
-    mcp.run(transport=transport)
+    if transport == "stdio":
+        mcp.run(transport=transport)
+    else:
+        # HTTP-based transports (streamable-http/http/sse) need bind address
+        mcp.run(transport=transport, host=_resolved_host, port=_resolved_port)
