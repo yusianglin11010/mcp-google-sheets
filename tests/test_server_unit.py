@@ -63,7 +63,9 @@ class RecordingSpreadsheetsResource:
                 {"properties": {"title": "Data", "sheetId": 456}},
             ],
         }
-        self.batch_update_result = {"replies": [{"addChart": {"chart": {"chartId": 7}}}]}
+        self.batch_update_result = {
+            "replies": [{"addChart": {"chart": {"chartId": 7}}}]
+        }
 
     def get(self, **kwargs):
         self.calls.append(("spreadsheets.get", kwargs))
@@ -139,7 +141,9 @@ def fake_ctx(sheets_service=None, drive_service=None, folder_id=None):
 
 class ParseEnabledToolsTests(unittest.TestCase):
     def test_cli_include_tools_takes_precedence_over_environment(self):
-        with patch.object(sys, "argv", ["mcp-google-sheets", "--include-tools", "a, b"]):
+        with patch.object(
+            sys, "argv", ["mcp-google-sheets", "--include-tools", "a, b"]
+        ):
             with patch.dict(os.environ, {"ENABLED_TOOLS": "c"}, clear=False):
                 self.assertEqual(server._parse_enabled_tools(), {"a", "b"})
 
@@ -443,7 +447,9 @@ class ToolRequestConstructionTests(unittest.TestCase):
             ctx=fake_ctx(sheets_service=sheets_service),
         )
 
-        self.assertEqual(result, [{"sheet": "Sheet1", "cell": "A2", "value": "Ada Lovelace"}])
+        self.assertEqual(
+            result, [{"sheet": "Sheet1", "cell": "A2", "value": "Ada Lovelace"}]
+        )
 
     def test_add_chart_rejects_invalid_chart_type_before_api_call(self):
         sheets_service = RecordingSheetsService()
@@ -484,7 +490,9 @@ class ToolRequestConstructionTests(unittest.TestCase):
         self.assertEqual(add_chart["spec"]["title"], "Trend")
         self.assertEqual(add_chart["spec"]["basicChart"]["chartType"], "LINE")
         self.assertEqual(
-            add_chart["spec"]["basicChart"]["domains"][0]["domain"]["sourceRange"]["sources"],
+            add_chart["spec"]["basicChart"]["domains"][0]["domain"]["sourceRange"][
+                "sources"
+            ],
             [
                 {
                     "sheetId": 123,
@@ -496,7 +504,9 @@ class ToolRequestConstructionTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            add_chart["spec"]["basicChart"]["series"][0]["series"]["sourceRange"]["sources"],
+            add_chart["spec"]["basicChart"]["series"][0]["series"]["sourceRange"][
+                "sources"
+            ],
             [
                 {
                     "sheetId": 123,
@@ -517,6 +527,51 @@ class ToolRequestConstructionTests(unittest.TestCase):
                 "heightPixels": 200,
             },
         )
+
+
+class SpreadsheetContextTests(unittest.TestCase):
+    def test_service_account_mode_returns_injected_services(self):
+        ctx = server.SpreadsheetContext(
+            sheets_service="SHEETS", drive_service="DRIVE", folder_id="folder"
+        )
+        self.assertEqual(ctx.sheets_service, "SHEETS")
+        self.assertEqual(ctx.drive_service, "DRIVE")
+        self.assertEqual(ctx.folder_id, "folder")
+
+    def test_user_mode_resolves_services_per_request(self):
+        ctx = server.SpreadsheetContext(user_mode=True, folder_id="f")
+        with patch.object(
+            server.outbound, "get_user_services", return_value=("US", "UD")
+        ) as get_services:
+            self.assertEqual(ctx.sheets_service, "US")
+            self.assertEqual(ctx.drive_service, "UD")
+        self.assertEqual(ctx.folder_id, "f")
+        # Resolved per access (once for sheets, once for drive).
+        self.assertEqual(get_services.call_count, 2)
+
+
+class OutboundStartupGuardTests(unittest.TestCase):
+    def test_main_validates_outbound_config(self):
+        with patch.object(server.mcp, "run"):
+            with patch.object(server, "_configure_logging"):
+                with patch.object(server.logger, "info"):
+                    with patch.object(sys, "argv", ["mcp-google-sheets"]):
+                        with patch.object(
+                            server.outbound, "validate_outbound_config"
+                        ) as validate:
+                            server.main()
+        validate.assert_called_once_with()
+
+    def test_main_fails_closed_on_user_mode_without_auth(self):
+        with patch.dict(
+            os.environ,
+            {"AUTH_OUTBOUND_MODE": "user", "AUTH_ENABLED": "false"},
+            clear=False,
+        ):
+            with patch.object(server, "_configure_logging"):
+                with patch.object(sys, "argv", ["mcp-google-sheets"]):
+                    with self.assertRaises(server.outbound.OutboundConfigError):
+                        server.main()
 
 
 if __name__ == "__main__":
