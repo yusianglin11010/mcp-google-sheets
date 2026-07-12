@@ -94,11 +94,24 @@ def build_auth_provider(environ: Optional[Mapping[str, str]] = None):
     if user_mode(env):
         required_scopes += USER_OUTBOUND_SCOPES
 
+    # Consent interstitial is ON by default (a security feature for real
+    # browser flows). It can be disabled for local/headless testing where the
+    # extra localhost page is unreachable (e.g. paste-URL OAuth).
+    require_consent = (
+        env.get("AUTH_REQUIRE_CONSENT", "true").strip().lower() in _TRUE_VALUES
+    )
+    if not require_consent:
+        logger.warning(
+            "AUTH_REQUIRE_CONSENT=false: OAuth consent screen disabled "
+            "(local/testing only)"
+        )
+
     provider_kwargs = {
         "client_id": client_id,
         "client_secret": client_secret,
         "base_url": base_url,
         "required_scopes": required_scopes,
+        "require_authorization_consent": require_consent,
     }
     if jwt_signing_key:
         provider_kwargs["jwt_signing_key"] = jwt_signing_key

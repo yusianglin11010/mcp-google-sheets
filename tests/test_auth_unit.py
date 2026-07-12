@@ -158,5 +158,27 @@ class RequiredScopesTest(unittest.TestCase):
         self.assertIn("https://www.googleapis.com/auth/drive.readonly", scopes)
 
 
+class ConsentToggleTest(unittest.TestCase):
+    def _captured_kwargs(self, env):
+        captured = {}
+
+        class FakeProvider:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        with patch("fastmcp.server.auth.providers.google.GoogleProvider", FakeProvider):
+            auth.build_auth_provider(env)
+        return captured
+
+    def test_consent_required_by_default(self):
+        self.assertTrue(
+            self._captured_kwargs(VALID_AUTH_ENV)["require_authorization_consent"]
+        )
+
+    def test_consent_can_be_disabled(self):
+        env = dict(VALID_AUTH_ENV, AUTH_REQUIRE_CONSENT="false")
+        self.assertFalse(self._captured_kwargs(env)["require_authorization_consent"])
+
+
 if __name__ == "__main__":
     unittest.main()
