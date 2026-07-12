@@ -549,6 +549,26 @@ class SpreadsheetContextTests(unittest.TestCase):
         # Resolved per access (once for sheets, once for drive).
         self.assertEqual(get_services.call_count, 2)
 
+    def test_real_tool_uses_per_user_service_through_context(self):
+        """A real tool call in user mode reaches the caller's own service via the
+        property context, with no change to the tool's call site."""
+        sheets_service = RecordingSheetsService()
+        values = sheets_service.spreadsheets_resource.values_resource
+        values.get_results["Sheet1!A1:B2"] = {"values": [["x", "y"]]}
+
+        user_ctx = server.SpreadsheetContext(user_mode=True)
+        ctx = SimpleNamespace(
+            request_context=SimpleNamespace(lifespan_context=user_ctx)
+        )
+        with patch.object(
+            server.outbound,
+            "get_user_services",
+            return_value=(sheets_service, None),
+        ):
+            result = server.get_sheet_data("sid", "Sheet1", "A1:B2", ctx=ctx)
+
+        self.assertEqual(result["valueRanges"][0]["values"], [["x", "y"]])
+
 
 class OutboundStartupGuardTests(unittest.TestCase):
     def test_main_validates_outbound_config(self):
