@@ -398,6 +398,23 @@ The server checks for credentials in this order:
 | `CREDENTIALS_PATH`               | OAuth 2.0                   | Path to the OAuth 2.0 Client ID JSON file.                       | `credentials.json` |
 | `TOKEN_PATH`                     | OAuth 2.0                   | Path to store the generated OAuth token.                         | `token.json`       |
 | `CREDENTIALS_CONFIG`             | Service Account / OAuth 2.0 | Base64 encoded JSON string of credentials content.               | -                  |
+| `AUTH_OUTBOUND_MODE`             | Outbound identity           | `service_account` (default) or `user` (per-user Google identity).| `service_account`  |
+
+---
+
+### Outbound identity mode (`AUTH_OUTBOUND_MODE`)
+
+Controls **whose** Google identity the tools use for outbound Sheets/Drive calls:
+
+| Mode | Behaviour |
+|:-----|:----------|
+| `service_account` (default) | One shared service account for every request. Data reach = whatever sheets are shared with that service account. Byte-for-byte the upstream behaviour. |
+| `user` | Each request uses the **calling user's own Google token** (from the inbound MCP OAuth layer), so every user reaches **their own** spreadsheets. |
+
+`user` mode **requires inbound auth** (`AUTH_ENABLED=true`); starting with
+`AUTH_OUTBOUND_MODE=user` and auth disabled fails closed. It also broadens the
+inbound OAuth scopes to include `spreadsheets` + `drive.readonly` so the user's
+token can drive the API — update your GCP OAuth consent screen accordingly.
 
 ---
 

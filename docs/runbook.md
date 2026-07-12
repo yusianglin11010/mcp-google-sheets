@@ -36,6 +36,10 @@ docker stats --no-stream                 # 記憶體基線 ~100MiB,異常升高�
 - **全面撤銷所有 token**:更換 `AUTH_JWT_SIGNING_KEY`(或清空後重啟,若原本未設)。
 - **使用者端**:claude.ai → Settings → Connectors → 該連接器 → Disconnect;
   Google 帳號端可在 https://myaccount.google.com/permissions 移除授權。
+- **per-user 模式(`AUTH_OUTBOUND_MODE=user`)額外注意**:出站是用「使用者本人的
+  Google token」,所以要真正切斷某人對其資料的存取,除了移出白名單,該使用者(或你)
+  需在 https://myaccount.google.com/permissions **移除本 app 的授權**,使其 refresh
+  token 失效。移出白名單只擋連接器入口,不會撤銷 Google 端已授予的權限。
 
 ## 換 key / secret
 

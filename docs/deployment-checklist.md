@@ -42,8 +42,21 @@
 |---|---|
 | `AUTH_GOOGLE_CLIENT_ID` | 步驟 4 Client ID |
 | `AUTH_GOOGLE_CLIENT_SECRET` | 步驟 4 Client secret |
-| `CREDENTIALS_CONFIG` | 步驟 5 base64 字串 |
+| `CREDENTIALS_CONFIG` | 步驟 5 base64 字串(僅 service_account 模式需要) |
 | `AUTH_ALLOWED_EMAILS` | 步驟 3 Test users 名單(逗號分隔) |
+| `AUTH_OUTBOUND_MODE` | `service_account`(預設)或 `user` |
+
+### 選用:per-user 出站模式(`AUTH_OUTBOUND_MODE=user`)
+
+若要讓「每位使用者存取自己的 Sheets」(而非共用 service account):
+
+- 步驟 3 的 **Scopes 需再加**:`.../auth/spreadsheets` 與 `.../auth/drive.readonly`。
+- 步驟 5、6 的 **service account 可略過**(user 模式不使用)。
+- **必須** `AUTH_ENABLED=true`,否則啟動即 fail-closed。
+- ⚠️ **Testing 模式限制**:同意畫面維持 Testing 時,Google 對 sensitive scope 發的
+  **refresh token 會在使用者同意後約 7 天過期**,屆時使用者需重新授權。若要長期免重授,
+  需將 OAuth app **發佈(Publish)**,而 sensitive scope 的發佈需經 Google 驗證——
+  上線前再評估是否送審。
 
 ---
 
