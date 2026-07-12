@@ -71,13 +71,15 @@ def build_auth_provider(environ: Optional[Mapping[str, str]] = None):
     ]
     if missing:
         raise AuthConfigError(
-            "AUTH_ENABLED=true but required settings are missing: "
-            + ", ".join(missing)
+            "AUTH_ENABLED=true but required settings are missing: " + ", ".join(missing)
         )
 
     # Imported lazily so the AUTH_ENABLED=false path never touches fastmcp auth
     # modules and stays byte-for-byte compatible with upstream behavior.
     from fastmcp.server.auth.providers.google import GoogleProvider
+
+    # Lazy import avoids an import cycle (outbound imports auth_enabled).
+    from mcp_google_sheets.outbound import USER_OUTBOUND_SCOPES, user_mode
 
     jwt_signing_key = env.get("AUTH_JWT_SIGNING_KEY", "").strip() or None
     if jwt_signing_key is None:
@@ -86,11 +88,17 @@ def build_auth_provider(environ: Optional[Mapping[str, str]] = None):
             "on every server restart"
         )
 
+    # In user outbound mode the caller's own Google token must carry Sheets/Drive
+    # access, so request those scopes at inbound login too.
+    required_scopes = list(INBOUND_SCOPES)
+    if user_mode(env):
+        required_scopes += USER_OUTBOUND_SCOPES
+
     provider_kwargs = {
         "client_id": client_id,
         "client_secret": client_secret,
         "base_url": base_url,
-        "required_scopes": INBOUND_SCOPES,
+        "required_scopes": required_scopes,
     }
     if jwt_signing_key:
         provider_kwargs["jwt_signing_key"] = jwt_signing_key
@@ -138,7 +146,9 @@ class EmailWhitelistMiddleware(Middleware):
     """Reject authenticated requests whose Google account email is not whitelisted."""
 
     def __init__(self, allowed_emails):
-        self._allowed = {email.strip().lower() for email in allowed_emails if email.strip()}
+        self._allowed = {
+            email.strip().lower() for email in allowed_emails if email.strip()
+        }
 
     async def on_request(self, context, call_next):
         from fastmcp.server.dependencies import get_access_token

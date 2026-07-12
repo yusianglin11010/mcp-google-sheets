@@ -130,5 +130,33 @@ class EmailWhitelistMiddlewareTest(unittest.TestCase):
         self.assertNotIn("SECRET-TOKEN-VALUE", "\n".join(logs.output))
 
 
+class RequiredScopesTest(unittest.TestCase):
+    """Inbound OAuth scopes depend on the outbound mode."""
+
+    def _captured_scopes(self, env):
+        captured = {}
+
+        class FakeProvider:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        with patch("fastmcp.server.auth.providers.google.GoogleProvider", FakeProvider):
+            auth.build_auth_provider(env)
+        return captured["required_scopes"]
+
+    def test_service_account_mode_requests_identity_only(self):
+        scopes = self._captured_scopes(VALID_AUTH_ENV)
+        self.assertIn("openid", scopes)
+        self.assertNotIn("https://www.googleapis.com/auth/spreadsheets", scopes)
+        self.assertNotIn("https://www.googleapis.com/auth/drive.readonly", scopes)
+
+    def test_user_mode_requests_sheets_scopes(self):
+        env = dict(VALID_AUTH_ENV, AUTH_OUTBOUND_MODE="user")
+        scopes = self._captured_scopes(env)
+        self.assertIn("openid", scopes)
+        self.assertIn("https://www.googleapis.com/auth/spreadsheets", scopes)
+        self.assertIn("https://www.googleapis.com/auth/drive.readonly", scopes)
+
+
 if __name__ == "__main__":
     unittest.main()
