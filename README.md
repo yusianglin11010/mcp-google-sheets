@@ -446,23 +446,40 @@ If you want to modify the code:
 
 ### Method 3: Docker (Streamable HTTP transport)
 
-Run the server in a container using the included `Dockerfile`:
+Run a single container from the included `Dockerfile`. Prefer `CREDENTIALS_CONFIG`
+(Base64 of the JSON key) over mounting a secret file:
 
 ```bash
-# Build the image
+# 1. Encode your service-account key once (Linux/macOS)
+export CREDENTIALS_CONFIG="$(base64 -w0 /path/to/service_account.json)"
+
+# 2. Build the image
 docker build -t mcp-google-sheets .
 
-# Run (streamable HTTP on port 8000)
-# NOTE: Prefer CREDENTIALS_CONFIG (Base64 credentials content) in containers.
-docker run --rm -p 8000:8000 ^
-  -e CREDENTIALS_CONFIG=YOUR_BASE64_CREDENTIALS ^
-  -e DRIVE_FOLDER_ID=YOUR_DRIVE_FOLDER_ID ^
+# 3. Run (streamable HTTP on port 8000)
+docker run --rm -p 8000:8000 \
+  -e CREDENTIALS_CONFIG="$CREDENTIALS_CONFIG" \
+  -e DRIVE_FOLDER_ID="YOUR_DRIVE_FOLDER_ID" \
   mcp-google-sheets
 ```
+
+<details>
+<summary>Windows PowerShell equivalent</summary>
+
+```powershell
+$env:CREDENTIALS_CONFIG = [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\service_account.json"))
+docker build -t mcp-google-sheets .
+docker run --rm -p 8000:8000 `
+  -e CREDENTIALS_CONFIG="$env:CREDENTIALS_CONFIG" `
+  -e DRIVE_FOLDER_ID="YOUR_DRIVE_FOLDER_ID" `
+  mcp-google-sheets
+```
+</details>
 
 - Use `CREDENTIALS_CONFIG` instead of `SERVICE_ACCOUNT_PATH` inside Docker to avoid mounting secrets as files.
 - The container starts with `--transport streamable-http` and listens on `HOST`/`PORT` (defaults `0.0.0.0:8000`). Point your MCP client to `http://localhost:8000/mcp`.
 - The image runs as a non-root user and uses `tini` as PID 1.
+- To expose the server to **claude.ai** (with OAuth + optional per-user identity), use `docker compose` instead — see [Remote Deployment with OAuth](#-remote-deployment-with-oauth-claudeai-custom-connector) below.
 
 ---
 
@@ -505,11 +522,39 @@ service account.
 - Keep the GCP OAuth consent screen in **Testing** and mirror
   `AUTH_ALLOWED_EMAILS` in its Test users list.
 
-### Deployment
+### Deployment with `docker compose`
 
 `docker-compose.yml` ships a ready-made pair: `sheets-mcp` (no host port —
-internal network only) + `cloudflared` (Cloudflare Tunnel sidecar). Copy
-`.env.example` to `.env`, fill it in, and `docker compose up -d`.
+internal network only) + `cloudflared` (Cloudflare Tunnel sidecar). Every
+secret is read from `.env`, which is git-ignored.
+
+```bash
+# 1. Create your env file from the template and fill it in
+cp .env.example .env
+#    Edit .env: AUTH_GOOGLE_CLIENT_ID/SECRET, AUTH_BASE_URL, AUTH_ALLOWED_EMAILS,
+#    TUNNEL_TOKEN, and either CREDENTIALS_CONFIG (service_account mode) or
+#    AUTH_OUTBOUND_MODE=user (per-user mode — no service account needed).
+
+# 2. (recommended) generate a stable token-signing key
+openssl rand -hex 32   # paste into AUTH_JWT_SIGNING_KEY in .env
+
+# 3. Build + start the server and the tunnel
+docker compose up -d --build
+
+# 4. Watch the logs / stop
+docker compose logs -f sheets-mcp
+docker compose down
+```
+
+Then add the connector in claude.ai using your public `AUTH_BASE_URL` (e.g.
+`https://sheets-mcp.example.com/mcp`) and log in with a whitelisted Google account.
+
+**Choosing the outbound mode in `.env`:**
+
+| `.env` setting | Result |
+|---|---|
+| `AUTH_OUTBOUND_MODE=service_account` (default) + `CREDENTIALS_CONFIG=<base64 key>` | All users share one service account; it only sees sheets shared with it. |
+| `AUTH_OUTBOUND_MODE=user` | Each user reaches **their own** Sheets via their own Google login. No service account key required. |
 
 Step-by-step operator guides:
 - [docs/deployment-checklist.md](docs/deployment-checklist.md) — GCP console,
