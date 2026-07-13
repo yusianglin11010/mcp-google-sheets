@@ -12,8 +12,12 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: "8000"
-      # Outbound: Google service account (base64 JSON)
-      CREDENTIALS_CONFIG: ${CREDENTIALS_CONFIG}
+      # Outbound: whose Google identity the tools use.
+      # service_account (default) uses CREDENTIALS_CONFIG below; user = each
+      # caller's own Google token (requires AUTH_ENABLED=true).
+      AUTH_OUTBOUND_MODE: ${AUTH_OUTBOUND_MODE:-service_account}
+      # Service account (base64 JSON) — used only in service_account mode.
+      CREDENTIALS_CONFIG: ${CREDENTIALS_CONFIG:-}
       DRIVE_FOLDER_ID: ${DRIVE_FOLDER_ID:-}
       # Inbound: MCP OAuth for claude.ai
       AUTH_ENABLED: ${AUTH_ENABLED:-true}
