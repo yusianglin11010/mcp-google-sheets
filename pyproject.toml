@@ -5,10 +5,17 @@ description = "This MCP server integrates with your Google Drive and Google Shee
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "mcp>=1.8.0",
+    "fastmcp>=2.13.3,<3",
     "google-auth>=2.28.1",
     "google-auth-oauthlib>=1.2.0",
     "google-api-python-client>=2.117.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
 ]
 [[project.authors]]
 name = "Xing Wu"

@@ -21,6 +21,63 @@
 
 ---
 
+## 🔱 What this fork adds (vs upstream `xing5/mcp-google-sheets`)
+
+This fork keeps the upstream server **100% intact by default** and adds an
+**opt-in** path to run it as a remote, OAuth-protected **claude.ai custom
+connector**. With `AUTH_ENABLED` unset (or `false`) the behavior is byte-for-byte
+the same as upstream — the additions below only switch on when you configure them.
+
+| Addition | What it does | Turned on by |
+|---|---|---|
+| **Inbound MCP OAuth** | Run as a remote server that claude.ai (Web/Desktop/Mobile) connects to as a custom connector. Acts as an OAuth authorization server (Dynamic Client Registration) and proxies login to Google via FastMCP's `GoogleProvider`; issues its own tokens (Google tokens are never passed to the client). | `AUTH_ENABLED=true` (+ `AUTH_GOOGLE_CLIENT_ID/SECRET`, `AUTH_BASE_URL`, `AUTH_JWT_SIGNING_KEY`) |
+| **Google-account whitelist** | Only listed accounts may use the connector; everyone else gets 403. Fail-closed: an empty list refuses to start. | `AUTH_ALLOWED_EMAILS` |
+| **Per-user outbound identity** | Each request uses the **calling user's own** Google token, so every user reaches **their own** Sheets. Default `service_account` = one shared identity (upstream behavior). | `AUTH_OUTBOUND_MODE=user` |
+| **Container + tunnel deployment** | Non-root `Dockerfile` (streamable-HTTP) + `docker-compose.yml` (server + Cloudflare Tunnel sidecar) + operator docs. | `docker compose up -d` |
+| **Tool-whitelist hardening** | Recommended `ENABLED_TOOLS` set that excludes `share_spreadsheet` (data-exfiltration risk); loud startup warning if it is exposed while auth is on. | `ENABLED_TOOLS` |
+| **FastMCP 2.x** | Migrated from the bundled `mcp.server.fastmcp` (1.x) to standalone `fastmcp>=2.13.3,<3`. | always |
+
+### Example A — Classic local use (identical to upstream)
+
+No new configuration. A local stdio server with a service account, exactly as
+before:
+
+```bash
+export SERVICE_ACCOUNT_PATH="/path/to/service-account-key.json"
+export DRIVE_FOLDER_ID="YOUR_DRIVE_FOLDER_ID"
+uvx mcp-google-sheets@latest
+```
+
+### Example B — Remote per-user claude.ai connector (new)
+
+Each user logs in with their own Google account and reaches their own
+spreadsheets. Fill a `.env` (see [`.env.example`](.env.example)):
+
+```ini
+# Inbound OAuth (this server becomes a claude.ai connector)
+AUTH_ENABLED=true
+AUTH_GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com
+AUTH_GOOGLE_CLIENT_SECRET=GOCSPX-xxxxx
+AUTH_BASE_URL=https://sheets-mcp.example.com          # your public tunnel URL
+AUTH_JWT_SIGNING_KEY=<openssl rand -hex 32>
+AUTH_ALLOWED_EMAILS=you@gmail.com,teammate@gmail.com  # fail-closed if empty
+
+# Outbound: each caller uses their OWN Google identity
+AUTH_OUTBOUND_MODE=user                                # no service account needed
+```
+
+```bash
+docker compose up -d --build
+# Then in claude.ai: Settings → Connectors → Add custom connector
+#   URL: https://sheets-mcp.example.com/mcp
+```
+
+> For the shared-service-account variant, set `AUTH_OUTBOUND_MODE=service_account`
+> (the default) and provide `CREDENTIALS_CONFIG` instead. Full walkthrough:
+> [Remote Deployment with OAuth](#-remote-deployment-with-oauth-claudeai-custom-connector).
+
+---
+
 ## 🚀 Quick Start (Using `uvx`)
 
 Essentially the server runs in one line: `uvx mcp-google-sheets@latest`. 
@@ -152,6 +209,17 @@ When filtering, use these exact tool names (comma-separated, no spaces):
 - `update_cells` - Write to spreadsheets
 - `list_spreadsheets` - Find spreadsheets
 - `list_sheets` - Navigate tabs
+
+**Recommended default for internet-facing deployments** (used by the example
+configs in this repo; deliberately excludes `share_spreadsheet` so a remote
+caller can never change spreadsheet permissions):
+
+```
+ENABLED_TOOLS=list_sheets,get_sheet_data,get_sheet_formulas,update_cells,batch_update_cells,add_rows,list_spreadsheets
+```
+
+When `AUTH_ENABLED=true` and `share_spreadsheet` is enabled (or no filter is
+set at all), the server logs a prominent security warning at startup.
 
 **All Available Tools:**
 - `add_columns`
@@ -387,6 +455,23 @@ The server checks for credentials in this order:
 | `CREDENTIALS_PATH`               | OAuth 2.0                   | Path to the OAuth 2.0 Client ID JSON file.                       | `credentials.json` |
 | `TOKEN_PATH`                     | OAuth 2.0                   | Path to store the generated OAuth token.                         | `token.json`       |
 | `CREDENTIALS_CONFIG`             | Service Account / OAuth 2.0 | Base64 encoded JSON string of credentials content.               | -                  |
+| `AUTH_OUTBOUND_MODE`             | Outbound identity           | `service_account` (default) or `user` (per-user Google identity).| `service_account`  |
+
+---
+
+### Outbound identity mode (`AUTH_OUTBOUND_MODE`)
+
+Controls **whose** Google identity the tools use for outbound Sheets/Drive calls:
+
+| Mode | Behaviour |
+|:-----|:----------|
+| `service_account` (default) | One shared service account for every request. Data reach = whatever sheets are shared with that service account. Byte-for-byte the upstream behaviour. |
+| `user` | Each request uses the **calling user's own Google token** (from the inbound MCP OAuth layer), so every user reaches **their own** spreadsheets. |
+
+`user` mode **requires inbound auth** (`AUTH_ENABLED=true`); starting with
+`AUTH_OUTBOUND_MODE=user` and auth disabled fails closed. It also broadens the
+inbound OAuth scopes to include `spreadsheets` + `drive.readonly` so the user's
+token can drive the API — update your GCP OAuth consent screen accordingly.
 
 ---
 
@@ -416,26 +501,123 @@ If you want to modify the code:
     # uv run start
     ```
 
-### Method 3: Docker (SSE transport)
+### Method 3: Docker (Streamable HTTP transport)
 
-Run the server in a container using the included `Dockerfile`:
+Run a single container from the included `Dockerfile`. Prefer `CREDENTIALS_CONFIG`
+(Base64 of the JSON key) over mounting a secret file:
 
 ```bash
-# Build the image
+# 1. Encode your service-account key once (Linux/macOS)
+export CREDENTIALS_CONFIG="$(base64 -w0 /path/to/service_account.json)"
+
+# 2. Build the image
 docker build -t mcp-google-sheets .
 
-# Run (SSE on port 8000)
-# NOTE: Prefer CREDENTIALS_CONFIG (Base64 credentials content) in containers.
-docker run --rm -p 8000:8000 ^
-  -e HOST=0.0.0.0 ^
-  -e PORT=8000 ^
-  -e CREDENTIALS_CONFIG=YOUR_BASE64_CREDENTIALS ^
-  -e DRIVE_FOLDER_ID=YOUR_DRIVE_FOLDER_ID ^
+# 3. Run (streamable HTTP on port 8000)
+docker run --rm -p 8000:8000 \
+  -e CREDENTIALS_CONFIG="$CREDENTIALS_CONFIG" \
+  -e DRIVE_FOLDER_ID="YOUR_DRIVE_FOLDER_ID" \
   mcp-google-sheets
 ```
 
+<details>
+<summary>Windows PowerShell equivalent</summary>
+
+```powershell
+$env:CREDENTIALS_CONFIG = [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\service_account.json"))
+docker build -t mcp-google-sheets .
+docker run --rm -p 8000:8000 `
+  -e CREDENTIALS_CONFIG="$env:CREDENTIALS_CONFIG" `
+  -e DRIVE_FOLDER_ID="YOUR_DRIVE_FOLDER_ID" `
+  mcp-google-sheets
+```
+</details>
+
 - Use `CREDENTIALS_CONFIG` instead of `SERVICE_ACCOUNT_PATH` inside Docker to avoid mounting secrets as files.
-- The container starts with `--transport sse` and listens on `HOST`/`PORT`. Point your MCP client to `http://localhost:8000` using SSE transport.
+- The container starts with `--transport streamable-http` and listens on `HOST`/`PORT` (defaults `0.0.0.0:8000`). Point your MCP client to `http://localhost:8000/mcp`.
+- The image runs as a non-root user and uses `tini` as PID 1.
+- To expose the server to **claude.ai** (with OAuth + optional per-user identity), use `docker compose` instead — see [Remote Deployment with OAuth](#-remote-deployment-with-oauth-claudeai-custom-connector) below.
+
+---
+
+## 🌐 Remote Deployment with OAuth (claude.ai Custom Connector)
+
+The server can be exposed to claude.ai (Web / Desktop / Mobile) as a **custom
+connector**, protected by MCP OAuth. This is **opt-in** — with `AUTH_ENABLED`
+unset or `false`, nothing changes from the classic local setup.
+
+```
+claude.ai ──(MCP OAuth, inbound)──> mcp-google-sheets ──(Service Account, outbound)──> Google Sheets API
+                                      │
+                                      └─ Docker (e.g. Synology NAS) behind a Cloudflare Tunnel
+```
+
+When `AUTH_ENABLED=true`, the server acts as an OAuth authorization server
+towards MCP clients (with Dynamic Client Registration), proxies the login to
+Google using a fixed OAuth client, and issues its own tokens — Google tokens
+are never passed through. Outbound Google Sheets access keeps using the
+service account.
+
+### Environment variables (auth)
+
+| Variable | Required | Description |
+|---|---|---|
+| `AUTH_ENABLED` | — | `true` enables inbound OAuth. Default `false`. |
+| `AUTH_GOOGLE_CLIENT_ID` | when enabled | Google OAuth client ID (type: Web application) |
+| `AUTH_GOOGLE_CLIENT_SECRET` | when enabled | Google OAuth client secret |
+| `AUTH_BASE_URL` | when enabled | Public HTTPS URL of this server (e.g. `https://sheets-mcp.example.com`). Redirect URI to register: `{AUTH_BASE_URL}/auth/callback` |
+| `AUTH_ALLOWED_EMAILS` | when enabled | Comma-separated whitelist of Google accounts. **Empty list = server refuses to start** (fail-closed). |
+| `AUTH_JWT_SIGNING_KEY` | recommended | Stable key (`openssl rand -hex 32`) so issued tokens survive restarts |
+
+### Security defaults
+
+- Requests from accounts outside `AUTH_ALLOWED_EMAILS` are rejected (403) even
+  with a valid token; the rejected email is logged, tokens never are.
+- Use the recommended `ENABLED_TOOLS` whitelist (excludes `share_spreadsheet`);
+  the server warns loudly at startup if `share_spreadsheet` is exposed while
+  auth is enabled.
+- Keep the GCP OAuth consent screen in **Testing** and mirror
+  `AUTH_ALLOWED_EMAILS` in its Test users list.
+
+### Deployment with `docker compose`
+
+`docker-compose.yml` ships a ready-made pair: `sheets-mcp` (no host port —
+internal network only) + `cloudflared` (Cloudflare Tunnel sidecar). Every
+secret is read from `.env`, which is git-ignored.
+
+```bash
+# 1. Create your env file from the template and fill it in
+cp .env.example .env
+#    Edit .env: AUTH_GOOGLE_CLIENT_ID/SECRET, AUTH_BASE_URL, AUTH_ALLOWED_EMAILS,
+#    TUNNEL_TOKEN, and either CREDENTIALS_CONFIG (service_account mode) or
+#    AUTH_OUTBOUND_MODE=user (per-user mode — no service account needed).
+
+# 2. (recommended) generate a stable token-signing key
+openssl rand -hex 32   # paste into AUTH_JWT_SIGNING_KEY in .env
+
+# 3. Build + start the server and the tunnel
+docker compose up -d --build
+
+# 4. Watch the logs / stop
+docker compose logs -f sheets-mcp
+docker compose down
+```
+
+Then add the connector in claude.ai using your public `AUTH_BASE_URL` (e.g.
+`https://sheets-mcp.example.com/mcp`) and log in with a whitelisted Google account.
+
+**Choosing the outbound mode in `.env`:**
+
+| `.env` setting | Result |
+|---|---|
+| `AUTH_OUTBOUND_MODE=service_account` (default) + `CREDENTIALS_CONFIG=<base64 key>` | All users share one service account; it only sees sheets shared with it. |
+| `AUTH_OUTBOUND_MODE=user` | Each user reaches **their own** Sheets via their own Google login. No service account key required. |
+
+Step-by-step operator guides:
+- [docs/deployment-checklist.md](docs/deployment-checklist.md) — GCP console,
+  Cloudflare Tunnel, Synology, claude.ai connector setup, E2E acceptance
+- [docs/runbook.md](docs/runbook.md) — restarts, key rotation, revoking
+  access, whitelist changes, troubleshooting
 
 ---
 

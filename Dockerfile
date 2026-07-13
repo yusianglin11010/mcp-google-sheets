@@ -1,45 +1,36 @@
-FROM alpine:latest AS base
+# Multi-stage build: wheel built with uv, installed into a slim runtime
+# image that runs as a non-root user.
 
-WORKDIR /app
-# Set environment variables for non-interactive installs and minimal locale
-ENV LANG=C.UTF-8
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
-# Update and install basic packages for a low resource machine
-RUN apk update && \
-    apk upgrade && \
-    apk add --no-cache \
-        bash \
-        curl \
-        tini \
-        curl \
-        coreutils \
-        git
+WORKDIR /build
 
-# Set tini as the init system to handle PID 1
-ENTRYPOINT ["/sbin/tini", "--"]
+COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY src ./src
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+# No .git in the build context: uv-dynamic-versioning uses fallback-version.
+RUN uv build --wheel --out-dir /dist \
+    && uv venv /opt/venv \
+    && uv pip install --python /opt/venv/bin/python /dist/*.whl
 
-# Ensure uv is on PATH (installer places it in /root/.local/bin for root)
-ENV PATH="/root/.local/bin:${PATH}"
+FROM python:3.12-slim-bookworm AS runtime
 
-COPY .python-version .
+# curl is kept for container-internal health/acceptance checks
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl tini \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 10001 mcp
 
-RUN uv venv
+COPY --from=builder /opt/venv /opt/venv
 
-FROM base AS builder
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    HOST=0.0.0.0 \
+    PORT=8000
 
-COPY . .
+USER mcp
+WORKDIR /home/mcp
+EXPOSE 8000
 
-RUN uv sync
-
-# Build the project (produces dist/*.whl)
-RUN uv build
-
-FROM base AS runner
-
-COPY --from=builder /app/dist/*.whl /app/
-
-RUN uv pip install /app/*.whl
-
-CMD ["uv", "run", "mcp-google-sheets", "--transport", "sse"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["mcp-google-sheets", "--transport", "streamable-http"]
