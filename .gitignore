@@ -12,5 +12,8 @@ wheels/
 .env
 .codex/github-todos/
 
+# Agent working docs (local only, not part of the repo)
+.claude/
+
 # Virtual environments
 .venv
