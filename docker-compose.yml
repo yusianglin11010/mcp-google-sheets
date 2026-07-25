@@ -1,6 +1,14 @@
-# Deployment: sheets-mcp (streamable HTTP, internal only) + Cloudflare Tunnel
-# sidecar. The MCP server is never published on a host port; the only way in
-# is through the tunnel.
+# Deployment: sheets-mcp (streamable HTTP) + optional Cloudflare Tunnel sidecar.
+#
+# Two ways to get public HTTPS in front of the server:
+#   1. You already run cloudflared (or any reverse proxy) elsewhere on your
+#      network: start only the server, publish its port with the local
+#      override, and point your tunnel's ingress at <host-ip>:8080.
+#        docker compose -f docker-compose.yml -f docker-compose.local.yml up -d sheets-mcp
+#   2. No existing tunnel: enable the bundled sidecar with the "tunnel"
+#      profile (requires TUNNEL_TOKEN in .env). The server then stays off any
+#      host port; the tunnel is the only way in.
+#        docker compose --profile tunnel up -d
 #
 # All secrets live in .env (see .env.example). Never commit .env.
 
@@ -33,6 +41,8 @@ services:
     # Intentionally no "ports": only cloudflared can reach this service.
 
   cloudflared:
+    # Started only with:  docker compose --profile tunnel up -d
+    profiles: ["tunnel"]
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
     command: tunnel --no-autoupdate run
