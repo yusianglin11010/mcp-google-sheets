@@ -1,0 +1,20 @@
+# Port-publish override — exposes the MCP server on a host port instead of
+# keeping it internal-only.
+#
+# Use this in EITHER of these situations:
+#   1. Local smoke test before any tunnel is involved, or
+#   2. Your cloudflared runs on a DIFFERENT machine (not the compose sidecar),
+#      so it must reach this server over the LAN at <this-host-ip>:8080.
+#
+# Run only the server (do NOT start the built-in cloudflared sidecar):
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build sheets-mcp
+#
+# Auth still protects every request (401 without a valid token), but note the
+# port is reachable by anything on the LAN. Bind it tighter if you need to.
+services:
+  sheets-mcp:
+    ports:
+      # host 8080 -> container 8000 (host 8000 was already in use). Reachable at
+      # http://localhost:8080 and http://<this-host-lan-ip>:8080.
+      # Change the left number if 8080 is also taken; the container stays on 8000.
+      - "8080:8000"
