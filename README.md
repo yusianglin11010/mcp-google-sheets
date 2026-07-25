@@ -33,7 +33,7 @@ the same as upstream — the additions below only switch on when you configure t
 | **Inbound MCP OAuth** | Run as a remote server that claude.ai (Web/Desktop/Mobile) connects to as a custom connector. Acts as an OAuth authorization server (Dynamic Client Registration) and proxies login to Google via FastMCP's `GoogleProvider`; issues its own tokens (Google tokens are never passed to the client). | `AUTH_ENABLED=true` (+ `AUTH_GOOGLE_CLIENT_ID/SECRET`, `AUTH_BASE_URL`, `AUTH_JWT_SIGNING_KEY`) |
 | **Google-account whitelist** | Only listed accounts may use the connector; everyone else gets 403. Fail-closed: an empty list refuses to start. | `AUTH_ALLOWED_EMAILS` |
 | **Per-user outbound identity** | Each request uses the **calling user's own** Google token, so every user reaches **their own** Sheets. Default `service_account` = one shared identity (upstream behavior). | `AUTH_OUTBOUND_MODE=user` |
-| **Container + tunnel deployment** | Non-root `Dockerfile` (streamable-HTTP) + `docker-compose.yml` (server + Cloudflare Tunnel sidecar) + operator docs. | `docker compose up -d` |
+| **Container + tunnel deployment** | Non-root `Dockerfile` (streamable-HTTP) + `docker-compose.yml` (server + optional Cloudflare Tunnel sidecar via `--profile tunnel`) + operator docs. | `docker compose up -d` |
 | **Tool-whitelist hardening** | Recommended `ENABLED_TOOLS` set that excludes `share_spreadsheet` (data-exfiltration risk); loud startup warning if it is exposed while auth is on. | `ENABLED_TOOLS` |
 | **FastMCP 2.x** | Migrated from the bundled `mcp.server.fastmcp` (1.x) to standalone `fastmcp>=2.13.3,<3`. | always |
 
@@ -67,7 +67,11 @@ AUTH_OUTBOUND_MODE=user                                # no service account need
 ```
 
 ```bash
-docker compose up -d --build
+# With the bundled Cloudflare Tunnel sidecar (needs TUNNEL_TOKEN in .env):
+docker compose --profile tunnel up -d --build
+# Already have cloudflared / a reverse proxy elsewhere? Start only the server:
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build sheets-mcp
+
 # Then in claude.ai: Settings → Connectors → Add custom connector
 #   URL: https://sheets-mcp.example.com/mcp
 ```
@@ -595,8 +599,10 @@ cp .env.example .env
 # 2. (recommended) generate a stable token-signing key
 openssl rand -hex 32   # paste into AUTH_JWT_SIGNING_KEY in .env
 
-# 3. Build + start the server and the tunnel
-docker compose up -d --build
+# 3. Build + start the server and the bundled tunnel sidecar
+#    (skip --profile tunnel if your cloudflared/reverse proxy runs elsewhere;
+#     then also publish the port: add -f docker-compose.local.yml and target sheets-mcp)
+docker compose --profile tunnel up -d --build
 
 # 4. Watch the logs / stop
 docker compose logs -f sheets-mcp

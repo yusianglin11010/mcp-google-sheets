@@ -88,7 +88,9 @@
 1. 上傳 `docker-compose.yml` 與填好的 `.env` 至 NAS(同一資料夾;`.env` 權限建議 600)
 2. Container Manager(或 SSH)建立專案並啟動:
    ```bash
-   docker compose up -d --build     # NAS 上若拉不到 build 環境,可先在他處 build 後推私有 registry
+   docker compose --profile tunnel up -d --build   # NAS 上若拉不到 build 環境,可先在他處 build 後推私有 registry
+   # 若 cloudflared 已常駐於別台機器,改為只起 server 並發佈 port:
+   #   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build sheets-mcp
    ```
 3. 驗收:
    ```bash

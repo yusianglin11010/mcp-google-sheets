@@ -48,7 +48,7 @@ docker stats --no-stream                 # 記憶體基線 ~100MiB,異常升高�
 | **Service account key**(出站) | GCP → Service Accounts → Keys → 新增新 key → `base64 -w0 新key.json` 更新 `.env` 的 `CREDENTIALS_CONFIG` → `docker compose up -d` → 確認可讀寫後,回 GCP 刪除舊 key |
 | **OAuth client secret**(入站) | GCP → Credentials → 該 OAuth client → 新增 secret → 更新 `AUTH_GOOGLE_CLIENT_SECRET` → `docker compose up -d` → claude.ai 重新授權 → 刪除舊 secret |
 | **JWT signing key** | `openssl rand -hex 32` → 更新 `AUTH_JWT_SIGNING_KEY` → `docker compose up -d`(所有既有 token 立即失效) |
-| **Tunnel token** | Zero Trust → Tunnels → rotate token → 更新 `TUNNEL_TOKEN` → `docker compose up -d cloudflared` |
+| **Tunnel token** | Zero Trust → Tunnels → rotate token → 更新 `TUNNEL_TOKEN` → `docker compose --profile tunnel up -d cloudflared`(僅使用內建 sidecar 時;外部 cloudflared 依其自身方式輪替) |
 
 ## 常見故障
 
