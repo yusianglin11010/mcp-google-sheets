@@ -33,10 +33,13 @@ OUTBOUND_MODE_USER = "user"
 _VALID_MODES = {OUTBOUND_MODE_SA, OUTBOUND_MODE_USER}
 
 # Extra Google scopes the inbound OAuth must request in user mode so the user's
-# token can drive the Sheets/Drive APIs. drive.readonly powers list/search tools.
+# token can drive the Sheets/Drive APIs. drive.readonly powers the list/search
+# tools; drive.file covers create_spreadsheet, which writes a new Drive file and
+# is therefore not covered by the read-only scope.
 USER_OUTBOUND_SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/drive.file",
 ]
 
 

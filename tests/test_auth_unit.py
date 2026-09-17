@@ -149,6 +149,7 @@ class RequiredScopesTest(unittest.TestCase):
         self.assertIn("openid", scopes)
         self.assertNotIn("https://www.googleapis.com/auth/spreadsheets", scopes)
         self.assertNotIn("https://www.googleapis.com/auth/drive.readonly", scopes)
+        self.assertNotIn("https://www.googleapis.com/auth/drive.file", scopes)
 
     def test_user_mode_requests_sheets_scopes(self):
         env = dict(VALID_AUTH_ENV, AUTH_OUTBOUND_MODE="user")
@@ -156,6 +157,12 @@ class RequiredScopesTest(unittest.TestCase):
         self.assertIn("openid", scopes)
         self.assertIn("https://www.googleapis.com/auth/spreadsheets", scopes)
         self.assertIn("https://www.googleapis.com/auth/drive.readonly", scopes)
+
+    def test_user_mode_can_create_drive_files(self):
+        """create_spreadsheet writes to Drive; drive.readonly alone would 403."""
+        env = dict(VALID_AUTH_ENV, AUTH_OUTBOUND_MODE="user")
+        scopes = self._captured_scopes(env)
+        self.assertIn("https://www.googleapis.com/auth/drive.file", scopes)
 
 
 class ConsentToggleTest(unittest.TestCase):
