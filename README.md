@@ -31,9 +31,9 @@ the same as upstream — the additions below only switch on when you configure t
 | Addition | What it does | Turned on by |
 |---|---|---|
 | **Inbound MCP OAuth** | Run as a remote server that claude.ai (Web/Desktop/Mobile) connects to as a custom connector. Acts as an OAuth authorization server (Dynamic Client Registration) and proxies login to Google via FastMCP's `GoogleProvider`; issues its own tokens (Google tokens are never passed to the client). | `AUTH_ENABLED=true` (+ `AUTH_GOOGLE_CLIENT_ID/SECRET`, `AUTH_BASE_URL`, `AUTH_JWT_SIGNING_KEY`) |
-| **Google-account whitelist** | Only listed accounts may use the connector; everyone else gets 403. Fail-closed: an empty list refuses to start. | `AUTH_ALLOWED_EMAILS` |
+| **Google-account whitelist** | Only listed accounts may use the connector; everyone else gets 403. The Compose setup reloads changes live and fails closed if the list is empty or unavailable. | `config/allowed-emails.txt` (`AUTH_ALLOWED_EMAILS` remains supported) |
 | **Per-user outbound identity** | Each request uses the **calling user's own** Google token, so every user reaches **their own** Sheets. Default `service_account` = one shared identity (upstream behavior). | `AUTH_OUTBOUND_MODE=user` |
-| **Container + tunnel deployment** | Non-root `Dockerfile` (streamable-HTTP) + `docker-compose.yml` (server + optional Cloudflare Tunnel sidecar via `--profile tunnel`) + operator docs. | `docker compose up -d` |
+| **Container deployment** | Non-root `Dockerfile` (streamable-HTTP) + Compose base/local override + one-command startup. | `./start.sh` |
 | **Tool-whitelist hardening** | Recommended `ENABLED_TOOLS` set that excludes `share_spreadsheet` (data-exfiltration risk); loud startup warning if it is exposed while auth is on. | `ENABLED_TOOLS` |
 | **FastMCP 2.x** | Migrated from the bundled `mcp.server.fastmcp` (1.x) to standalone `fastmcp>=2.13.3,<3`. | always |
 
@@ -67,10 +67,9 @@ AUTH_OUTBOUND_MODE=user                                # no service account need
 ```
 
 ```bash
-# With the bundled Cloudflare Tunnel sidecar (needs TUNNEL_TOKEN in .env):
-docker compose --profile tunnel up -d --build
-# Already have cloudflared / a reverse proxy elsewhere? Start only the server:
-#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build sheets-mcp
+# Build and start the server on local port 8088. Point your separately managed
+# cloudflared / reverse proxy at this host and port.
+./start.sh
 
 # Then in claude.ai: Settings → Connectors → Add custom connector
 #   URL: https://sheets-mcp.example.com/mcp
@@ -570,24 +569,25 @@ service account.
 | `AUTH_GOOGLE_CLIENT_ID` | when enabled | Google OAuth client ID (type: Web application) |
 | `AUTH_GOOGLE_CLIENT_SECRET` | when enabled | Google OAuth client secret |
 | `AUTH_BASE_URL` | when enabled | Public HTTPS URL of this server (e.g. `https://sheets-mcp.example.com`). Redirect URI to register: `{AUTH_BASE_URL}/auth/callback` |
-| `AUTH_ALLOWED_EMAILS` | when enabled | Comma-separated whitelist of Google accounts. **Empty list = server refuses to start** (fail-closed). |
+| `AUTH_ALLOWED_EMAILS` | when enabled without a file | Comma-separated whitelist of Google accounts. Used as the compatibility fallback and by `start.sh` for first-run migration. |
+| `AUTH_ALLOWED_EMAILS_FILE` | optional | Comma- or newline-separated whitelist file. Takes precedence over the ENV value and is re-read on every authenticated request. Empty, missing, or unreadable files fail closed. |
 | `AUTH_JWT_SIGNING_KEY` | recommended | Stable key (`openssl rand -hex 32`) so issued tokens survive restarts |
 
 ### Security defaults
 
-- Requests from accounts outside `AUTH_ALLOWED_EMAILS` are rejected (403) even
+- Requests from accounts outside the active email allowlist are rejected (403) even
   with a valid token; the rejected email is logged, tokens never are.
 - Use the recommended `ENABLED_TOOLS` whitelist (excludes `share_spreadsheet`);
   the server warns loudly at startup if `share_spreadsheet` is exposed while
   auth is enabled.
 - Keep the GCP OAuth consent screen in **Testing** and mirror
-  `AUTH_ALLOWED_EMAILS` in its Test users list.
+  `config/allowed-emails.txt` in its Test users list.
 
 ### Deployment with `docker compose`
 
-`docker-compose.yml` ships a ready-made pair: `sheets-mcp` (no host port —
-internal network only) + `cloudflared` (Cloudflare Tunnel sidecar). Every
-secret is read from `.env`, which is git-ignored.
+`docker-compose.yml` defines the service and `docker-compose.local.yml` publishes
+host port `8088`. `start.sh` combines both files, builds the image, and starts
+the service. Secrets remain in the git-ignored `.env` file.
 
 ```bash
 # 1. Create your env file from the template and fill it in
@@ -599,15 +599,20 @@ cp .env.example .env
 # 2. (recommended) generate a stable token-signing key
 openssl rand -hex 32   # paste into AUTH_JWT_SIGNING_KEY in .env
 
-# 3. Build + start the server and the bundled tunnel sidecar
-#    (skip --profile tunnel if your cloudflared/reverse proxy runs elsewhere;
-#     then also publish the port: add -f docker-compose.local.yml and target sheets-mcp)
-docker compose --profile tunnel up -d --build
+# 3. Build + start the local service on port 8088
+#    On first run, this copies AUTH_ALLOWED_EMAILS into
+#    config/allowed-emails.txt.
+./start.sh
 
 # 4. Watch the logs / stop
 docker compose logs -f sheets-mcp
-docker compose down
+docker compose -f docker-compose.yml -f docker-compose.local.yml down
 ```
+
+To change access without rebuilding or restarting the container, edit
+`config/allowed-emails.txt`. Use one email per line (commas also work). The next
+authenticated request sees the new list. Keep the Google OAuth consent screen
+Test users synchronized separately.
 
 Then add the connector in claude.ai using your public `AUTH_BASE_URL` (e.g.
 `https://sheets-mcp.example.com/mcp`) and log in with a whitelisted Google account.

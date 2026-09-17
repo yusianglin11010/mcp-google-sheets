@@ -2,7 +2,9 @@
 
 import asyncio
 import logging
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -79,6 +81,27 @@ class EmailWhitelistConfigTest(unittest.TestCase):
         )
         self.assertEqual(emails, {"alice@example.com", "bob@example.com"})
 
+    def test_file_whitelist_supports_lines_commas_and_comments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "allowed-emails.txt"
+            path.write_text(
+                "Alice@Example.com\n# teammate\nbob@example.com, carol@example.com\n",
+                encoding="utf-8",
+            )
+            emails = auth.load_allowed_emails_file(str(path))
+        self.assertEqual(
+            emails,
+            {"alice@example.com", "bob@example.com", "carol@example.com"},
+        )
+
+    def test_missing_file_whitelist_fails_startup(self):
+        env = dict(
+            VALID_AUTH_ENV,
+            AUTH_ALLOWED_EMAILS_FILE="/missing/allowed-emails.txt",
+        )
+        with self.assertRaises(auth.AuthConfigError):
+            auth.build_email_whitelist_middleware(env)
+
 
 class EmailWhitelistMiddlewareTest(unittest.TestCase):
     def setUp(self):
@@ -128,6 +151,36 @@ class EmailWhitelistMiddlewareTest(unittest.TestCase):
             with self.assertRaises(McpError):
                 self._call(token)
         self.assertNotIn("SECRET-TOKEN-VALUE", "\n".join(logs.output))
+
+    def test_file_whitelist_updates_without_rebuilding_middleware(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "allowed-emails.txt"
+            path.write_text("alice@example.com\n", encoding="utf-8")
+            env = dict(VALID_AUTH_ENV, AUTH_ALLOWED_EMAILS_FILE=str(path))
+            middleware = auth.build_email_whitelist_middleware(env)
+
+            self.middleware = middleware
+            alice = FakeAccessToken(claims={"email": "alice@example.com"})
+            bob = FakeAccessToken(claims={"email": "bob@example.com"})
+            self.assertEqual(self._call(alice), "passed-through")
+
+            path.write_text("bob@example.com\n", encoding="utf-8")
+            with self.assertRaises(McpError):
+                self._call(alice)
+            self.assertEqual(self._call(bob), "passed-through")
+
+    def test_empty_file_after_startup_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "allowed-emails.txt"
+            path.write_text("alice@example.com\n", encoding="utf-8")
+            env = dict(VALID_AUTH_ENV, AUTH_ALLOWED_EMAILS_FILE=str(path))
+            self.middleware = auth.build_email_whitelist_middleware(env)
+            path.write_text("", encoding="utf-8")
+
+            token = FakeAccessToken(claims={"email": "alice@example.com"})
+            with self.assertRaises(McpError) as cm:
+                self._call(token)
+            self.assertIn("403", str(cm.exception))
 
 
 class RequiredScopesTest(unittest.TestCase):

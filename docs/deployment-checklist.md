@@ -16,7 +16,7 @@
 3. **OAuth 同意畫面**(APIs & Services → OAuth consent screen)
    - User type:**External**
    - Publishing status:**維持 Testing,不要送審發佈**
-   - Test users:僅加入允許使用連接器的 Google 帳號(需與 `AUTH_ALLOWED_EMAILS` 完全一致)
+   - Test users:僅加入允許使用連接器的 Google 帳號(需與 `config/allowed-emails.txt` 完全一致)
    - Scopes:加入 `openid`、`.../auth/userinfo.email`
 
 4. **OAuth Client(入站認證用)**(APIs & Services → Credentials → Create credentials → OAuth client ID)
@@ -43,7 +43,7 @@
 | `AUTH_GOOGLE_CLIENT_ID` | 步驟 4 Client ID |
 | `AUTH_GOOGLE_CLIENT_SECRET` | 步驟 4 Client secret |
 | `CREDENTIALS_CONFIG` | 步驟 5 base64 字串(僅 service_account 模式需要) |
-| `AUTH_ALLOWED_EMAILS` | 步驟 3 Test users 名單(逗號分隔) |
+| `AUTH_ALLOWED_EMAILS` | 步驟 3 Test users 名單(逗號分隔);`./start.sh` 首次執行時會搬移到可動態更新的 `config/allowed-emails.txt` |
 | `AUTH_OUTBOUND_MODE` | `service_account`(預設)或 `user` |
 
 ### 選用:per-user 出站模式(`AUTH_OUTBOUND_MODE=user`)
@@ -85,12 +85,10 @@
 
 ## C. 部署到 Synology(對應 tasks.md T2.4)
 
-1. 上傳 `docker-compose.yml` 與填好的 `.env` 至 NAS(同一資料夾;`.env` 權限建議 600)
+1. 上傳專案與填好的 `.env` 至 NAS(`.env` 權限建議 600)
 2. Container Manager(或 SSH)建立專案並啟動:
    ```bash
-   docker compose --profile tunnel up -d --build   # NAS 上若拉不到 build 環境,可先在他處 build 後推私有 registry
-   # 若 cloudflared 已常駐於別台機器,改為只起 server 並發佈 port:
-   #   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build sheets-mcp
+   ./start.sh   # 組合 base + local override,發佈 8088 並建立動態白名單檔
    ```
 3. 驗收:
    ```bash

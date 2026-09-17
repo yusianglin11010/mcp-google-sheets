@@ -10,10 +10,14 @@ wheels/
 **/service_account.json
 
 .env
+*.swp
+config/allowed-emails.txt
 .codex/github-todos/
 
 # Agent working docs (local only, not part of the repo)
 .claude/
+poc/
+tasks.md
 
 # Virtual environments
 .venv

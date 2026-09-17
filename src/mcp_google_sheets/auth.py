@@ -15,11 +15,16 @@ Environment variables:
     AUTH_JWT_SIGNING_KEY      - Optional; lets issued tokens survive restarts
     AUTH_ALLOWED_EMAILS       - Comma-separated Google account whitelist.
                                 Required (non-empty) when AUTH_ENABLED=true.
+    AUTH_ALLOWED_EMAILS_FILE  - Optional path to a live-reloaded whitelist.
+                                Accepts comma- or newline-separated emails and
+                                takes precedence over AUTH_ALLOWED_EMAILS.
 """
 
 import logging
 import os
-from typing import Mapping, Optional
+import re
+from pathlib import Path
+from typing import Callable, Mapping, Optional
 
 from fastmcp.server.middleware import Middleware
 
@@ -120,11 +125,42 @@ def build_auth_provider(environ: Optional[Mapping[str, str]] = None):
     return GoogleProvider(**provider_kwargs)
 
 
-def parse_allowed_emails(environ: Optional[Mapping[str, str]] = None) -> set:
+def parse_allowed_emails_value(raw: str) -> set[str]:
+    """Parse comma- or newline-separated emails into a normalized set."""
+    without_comments = "\n".join(line.split("#", 1)[0] for line in raw.splitlines())
+    return {
+        email.strip().lower()
+        for email in re.split(r"[,\n]", without_comments)
+        if email.strip()
+    }
+
+
+def parse_allowed_emails(environ: Optional[Mapping[str, str]] = None) -> set[str]:
     """Parse AUTH_ALLOWED_EMAILS into a normalized (lowercase) set."""
     env = os.environ if environ is None else environ
-    raw = env.get("AUTH_ALLOWED_EMAILS", "")
-    return {email.strip().lower() for email in raw.split(",") if email.strip()}
+    return parse_allowed_emails_value(env.get("AUTH_ALLOWED_EMAILS", ""))
+
+
+def load_allowed_emails_file(path: str) -> set[str]:
+    """Read and parse a whitelist file, raising a config error if unavailable."""
+    try:
+        raw = Path(path).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise AuthConfigError(
+            f"Unable to read AUTH_ALLOWED_EMAILS_FILE: {path}"
+        ) from exc
+    return parse_allowed_emails_value(raw)
+
+
+def _build_allowed_emails_provider(
+    environ: Mapping[str, str],
+) -> Callable[[], set[str]]:
+    file_path = environ.get("AUTH_ALLOWED_EMAILS_FILE", "").strip()
+    if file_path:
+        return lambda: load_allowed_emails_file(file_path)
+
+    allowed = parse_allowed_emails(environ)
+    return lambda: set(allowed)
 
 
 def build_email_whitelist_middleware(environ: Optional[Mapping[str, str]] = None):
@@ -138,13 +174,14 @@ def build_email_whitelist_middleware(environ: Optional[Mapping[str, str]] = None
     if not auth_enabled(env):
         return None
 
-    allowed = parse_allowed_emails(env)
+    allowed_emails_provider = _build_allowed_emails_provider(env)
+    allowed = allowed_emails_provider()
     if not allowed:
         raise AuthConfigError(
-            "AUTH_ENABLED=true requires a non-empty AUTH_ALLOWED_EMAILS "
-            "whitelist (comma-separated Google account emails)"
+            "AUTH_ENABLED=true requires a non-empty AUTH_ALLOWED_EMAILS or "
+            "AUTH_ALLOWED_EMAILS_FILE whitelist"
         )
-    return EmailWhitelistMiddleware(allowed)
+    return EmailWhitelistMiddleware(allowed_emails_provider)
 
 
 def _forbidden(message: str):
@@ -158,10 +195,8 @@ def _forbidden(message: str):
 class EmailWhitelistMiddleware(Middleware):
     """Reject authenticated requests whose Google account email is not whitelisted."""
 
-    def __init__(self, allowed_emails):
-        self._allowed = {
-            email.strip().lower() for email in allowed_emails if email.strip()
-        }
+    def __init__(self, allowed_emails_provider: Callable[[], set[str]]):
+        self._allowed_emails_provider = allowed_emails_provider
 
     async def on_request(self, context, call_next):
         from fastmcp.server.dependencies import get_access_token
@@ -180,7 +215,17 @@ class EmailWhitelistMiddleware(Middleware):
             logger.warning("Rejected request without an email claim")
             raise _forbidden("no email identity in access token")
 
-        if email.strip().lower() not in self._allowed:
+        try:
+            allowed_emails = self._allowed_emails_provider()
+        except AuthConfigError as exc:
+            logger.error("Email whitelist reload failed: %s", exc)
+            raise _forbidden("email allowlist is unavailable") from exc
+
+        if not allowed_emails:
+            logger.error("Email whitelist reload produced an empty list")
+            raise _forbidden("email allowlist is empty")
+
+        if email.strip().lower() not in allowed_emails:
             logger.warning("Rejected non-whitelisted email: %s", email)
             raise _forbidden("account is not on the allowed list")
 
