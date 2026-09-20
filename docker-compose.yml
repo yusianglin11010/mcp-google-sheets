@@ -5,7 +5,6 @@ services:
   sheets-mcp:
     build: .
     image: mcp-google-sheets:latest
-    restart: unless-stopped
     environment:
       HOST: 0.0.0.0
       PORT: "8000"

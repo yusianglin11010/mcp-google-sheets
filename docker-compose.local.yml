@@ -12,6 +12,7 @@
 # port is reachable by anything on the LAN. Bind it tighter if you need to.
 services:
   sheets-mcp:
+    restart: unless-stopped
     ports:
       # host 8088 -> container 8000. Reachable at http://localhost:8088 and
       # http://<this-host-lan-ip>:8088.
